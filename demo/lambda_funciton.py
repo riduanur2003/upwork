@@ -1,34 +1,43 @@
 import json
-import subprocess
-import os
-import shutil
+import boto3
+import string
+import random
+import logging
+
+# Set up logging
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+iam = boto3.client('iam')
+
+def random_string(length):
+    letters = string.ascii_letters
+    return ''.join(random.choice(letters) for i in range(length))
 
 def lambda_handler(event, context):
-    # Define the directory containing your Terraform configuration
-    terraform_dir = '/tmp/terraform'
-    
-    # Create the directory if it doesn't exist
-    if not os.path.exists(terraform_dir):
-        os.makedirs(terraform_dir)
-    
-    # Copy the Terraform files to the /tmp directory
-    for file in os.listdir('/var/task/terraform'):
-        shutil.copy(f'/var/task/terraform/{file}', terraform_dir)
-    
-    # Change to the Terraform directory
-    os.chdir(terraform_dir)
+    try:
+        user_name = random_string(10)
+        password = random_string(16)+"7@"
 
-    # Initialize Terraform
-    subprocess.check_call(['terraform', 'init'])
+        # Create IAM user
+        user_response = iam.create_user(UserName=user_name)
+        logger.info(f"Created user: {user_response}")
 
-    # Apply the Terraform configuration
-    subprocess.check_call(['terraform', 'apply', '-auto-approve'])
+        # Create login profile for the new user
+        iam.create_login_profile(
+            UserName=user_name,
+            Password=password,
+            PasswordResetRequired=True
+        )
 
-    # Get the Terraform output
-    output = subprocess.check_output(['terraform', 'output', '-json'])
-    output_json = json.loads(output)
-
-    return {
-        'statusCode': 200,
-        'body': json.dumps(output_json)
-    }
+        return {
+            'statusCode': 200,
+            'UserName': user_name,
+            'Password': password
+        }
+    except Exception as e:
+        logger.error(f"Error creating user: {e}")
+        return {
+            'statusCode': 500,
+            'error': str(e),
+        }
